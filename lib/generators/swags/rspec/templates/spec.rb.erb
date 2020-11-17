@@ -1,0 +1,119 @@
+require 'swagger_helper'
+
+RSpec.describe <%= controller_class_name %>Controller, type: :request, swagger_doc: 'swagger_doc.yaml' do
+  let!(:<%=resource%>_show_permission) { Permission.find_by(resource_id: Dictionary::Resource::<%=up_id%>, action_id: Dictionary::Action::SHOW_ID)}
+  let!(:<%=resource%>_edit_permission) { Permission.find_by(resource_id: Dictionary::Resource::<%=up_id%>, action_id: Dictionary::Action::EDIT_ID)}
+  let!(:<%=resource%>_create_permission) { Permission.find_by(resource_id: Dictionary::Resource::<%=up_id%>, action_id: Dictionary::Action::CREATE_ID)}
+  let!(:<%=resource%>_delete_permission) { Permission.find_by(resource_id: Dictionary::Resource::<%=up_id%>, action_id: Dictionary::Action::DELETE_ID)}
+
+  let(:customer) {create(:customer)}
+  let(:customer_id) { customer.id }
+  let(:current_user) { create(:user, :system_operator, customer: customer) }
+  let(:Authorization) { "Bearer #{RailsJwtAuth::JwtManager.encode(current_user.to_token_payload)}" }
+
+  let(:building) { create(:building, customer: customer) }
+  let(:building_id) { building.id }
+
+  let(:model_name) {:<%=resource%>}
+  let(:belongs_params) { {customer_id: customer_id, building_id: building_id} }
+  let(:<%=resource%>) { create(:<%=resource%>, belongs_params) }
+  let(:<%=resources%>) { create_list(:<%=resource%>, 10, belongs_params) }
+  let(:params) { {<%=resource%>: attributes_for(:<%=resource%>, belongs_params)} }
+  let(:invalid_params) { {<%=resource%>: attributes_for(:<%=resource%>, **belongs_params, name: nil)} }
+
+  after do |example|
+    example.metadata[:response][:examples] = { 'application/json' => json } rescue nil
+  end
+
+  path '/<%=resources%>' do
+    get 'list <%=resources%>' do
+      tags :<%=classes_name%>
+      include_context 'parameters', %i[Authorization customer_id building_id base_for_index]
+      before do
+        <%=resources%>
+        create_list(:<%=resource%>, 10)
+      end
+
+      response 200, 'successful' do
+        produces "application/json"
+        schema type: :object, required: [:<%=resources%>],
+               properties: {<%=resources%>: {type: :array, items: {"$ref": "#/components/schemas/<%=class_name%>"}}}
+
+        context 'access for system_operator' do
+          let(:current_user) { create(:user, :system_operator) }
+          before {create(:users_permission, user: current_user, permission: <%=resource%>_show_permission)}
+          run_test! { |response| expect(json[:<%=resources%>].size).to eq(20) }
+        end
+
+        context 'access for customer_admin' do
+          before {create(:users_permission, user: current_user, permission: <%=resource%>_show_permission)}
+          run_test! { |response| expect(json[:<%=resources%>].size).to eq(10) }
+        end
+      end
+
+      include_examples "error_collection", %w[401 403]
+    end
+
+    post 'create <%=resource%>' do
+      tags :<%=classes_name%>
+      consumes 'application/json'
+      include_context 'parameters', %i[Authorization customer_id building_id]
+      parameter name: :params, in: :body, description: "Модель <%=class_name%>",
+                schema: {type: :object, properties: {<%=resource%>: {"$ref": "#/components/schemas/<%=class_name%>"}}}
+
+      let(:<%=resource%>) { attributes_for(:<%=resource%>, belongs_params) }
+      let(:params) {{<%=resource%>: <%=resource%>}}
+      before {create(:users_permission, user: current_user, permission: <%=resource%>_create_permission)}
+
+      response 201, "successful" do
+        produces "application/json"
+        schema type: :object, required: [:<%=resource%>],
+               properties: {<%=resource%>: {"$ref": "#/components/schemas/<%=class_name%>"}}
+        run_test!
+      end
+
+      include_examples "error_collection", %w[401 403 422]
+    end
+  end
+
+  path '/<%=resources%>/{id}' do
+    let(:id) { <%=resource%>.id }
+
+    get 'show <%=resource%>' do
+      tags :<%=classes_name%>
+      include_context "parameters", %i[Authorization customer_id building_id id]
+      before { create(:users_permission, user: current_user, permission: <%=resource%>_show_permission) }
+      produces "application/json"
+      response 200, 'successful' do
+        schema type: :object, properties: {<%=resource%>: {"$ref": "#/components/schemas/<%=class_name%>"}}, required: [:<%=resource%>]
+        run_test!
+      end
+      include_examples "error_collection", %w[401 403]
+    end
+
+    patch 'update <%=resource%>' do
+      tags :<%=classes_name%>
+      include_context "parameters", %i[Authorization customer_id building_id id]
+      before {create(:users_permission, user: current_user, permission: <%=resource%>_edit_permission)}
+      consumes "application/json"
+      parameter name: :params, in: :body, description: "Модель <%=class_name%>",
+                schema: {type: :object, properties: {<%=resource%>: {"$ref": "#/components/schemas/<%=class_name%>"}}}
+      response 200, 'successful' do
+        produces "application/json"
+        schema type: :object, properties: {<%=resource%>: {"$ref": "#/components/schemas/<%=class_name%>"}}, required: [:<%=resource%>]
+        run_test!
+      end
+      include_examples "error_collection", %w[400 401 403 422]
+    end
+
+    delete('delete <%=resource%>') do
+      tags :<%=classes_name%>
+      include_context "parameters", %i[Authorization customer_id building_id id]
+      before {create(:users_permission, user: current_user, permission: <%=resource%>_delete_permission)}
+      response(204, 'successful') do
+        run_test!
+      end
+      include_examples "error_collection", %w[401 403]
+    end
+  end
+end
